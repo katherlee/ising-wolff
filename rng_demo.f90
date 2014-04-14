@@ -7,7 +7,7 @@ use MKL_VSL
 
 REAL(kind = 8) r(100000)
 real(kind = 8) s
-real(kind = 8) a, sigma
+real(kind = 8) a, b
 
 TYPE (VSL_STREAM_STATE) :: stream
 
@@ -18,7 +18,7 @@ integer brng, method, seed, n
 n = 100000
 s = 0.0
 a = 0.0
-sigma = 1.0
+b = 1.0
 method = VSL_BRNG_METHOD_UNIFORM_STD
 brng = VSL_BRNG_MT2203
 seed = 777
@@ -27,7 +27,7 @@ errcode = vslnewstream( stream, brng, seed )
 
 open(1,file="test.dat")
 do i=1, 10
-   errcode = vdrnguniform( method, stream, n, r, a, sigma )
+   errcode = vdrnguniform( method, stream, n, r, a, b )
    do j = 2, n
       s = s+r(j)
       write (1,*) r(j), r(j-1)
