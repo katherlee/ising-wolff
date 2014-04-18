@@ -1,20 +1,46 @@
 include 'mkl_vsl.f90'
 program isingWolff
+  use MKL_VSL_TYPE
+  use MKL_VSL
   implicit none
-
-  real(kind=8), dimension(10000) :: ms, cor
-  real(kind=8), dimension(100) :: means, vars
+  integer, parameter :: nsteps = 10000
+  real(kind=8), dimension(nsteps) :: ms, cor
+  real(kind=8) :: mean, var
   integer :: i
   real*8 :: T
+  integer :: brng, seed  
+  integer(kind=4) :: errcode
+  type (VSL_STREAM_STATE) :: stream
+! initialize VSL RNG stream
+!$OMP PARALLEL SHARED(brng) PRIVATE(seed, errcode, stream, mean, var, T)
+  brng = VSL_BRNG_MT2203
+  seed = 16703
+!$seed = mod(OMP_get_thread_num()*16703, 997)
+  errcode = vslnewstream(stream, brng, seed)
+  call vsl_test(errcode)
+!$OMP DO
   do i=1,100
-  call wolff(2.3,100,10000,ms)
+     T = 2.0d0 + i*0.01d0
+     call wolff(T,100,nsteps,ms,stream)
+     call meanAndVar(ms, nsteps, mean, var)
+     write (*,*) T, mean, var
+  end do
+!$OMP END DO
+
 !  call autocor(ms, 10000, cor)
 !  do i=1,10000
 !     print *, cor(i)
 !  end do
+
+!-----------------------!
+! Destroying RNG stream !
+!-----------------------!
+  errcode = vsldeletestream(stream)
+  call vsl_test(errcode)
+!$OMP END PARALLEL
 end program isingWolff
 
-subroutine wolff(T, L, nsteps, ms)
+subroutine wolff(T, L, nsteps, ms, stream)
 ! mkl initialization
   use MKL_VSL_TYPE
   use MKL_VSL
@@ -26,21 +52,22 @@ subroutine wolff(T, L, nsteps, ms)
 !----------------------!
 
 ! Input parameters
-  real, intent(in) :: T
+  real(kind=8), intent(in) :: T
   integer, intent(in) :: L
   integer, intent(in) :: nsteps
   real(kind = 8), intent(out), dimension(nsteps) :: ms
 
 ! VSL RNG parameters
-  type (VSL_STREAM_STATE) :: stream
+  type (VSL_STREAM_STATE), intent(inout) :: stream
   integer(kind = 4) ::  errcode
-  integer :: brng, seed
   real(kind = 8), dimension(1) :: rExp
   integer(kind = 4), dimension(2) :: rInt
   
 
 ! Total sites
   integer :: N
+! Heating steps
+  integer, parameter :: heating = 1000
 ! Spin map
   integer(kind=4), dimension(L,L) :: map
   integer(kind=4), dimension(L,L) :: flag
@@ -66,11 +93,11 @@ subroutine wolff(T, L, nsteps, ms)
   N = L*L
 
 ! initialize VSL RNG stream
-  brng = VSL_BRNG_MT2203
-  seed = 16703
+!  brng = VSL_BRNG_MT2203
+!  seed = 16703
   
-  errcode = vslnewstream(stream, brng, seed)
-  call vsl_test(errcode)
+!  errcode = vslnewstream(stream, brng, seed)
+!  call vsl_test(errcode)
   
 
 ! initialize the spin map
@@ -87,14 +114,12 @@ subroutine wolff(T, L, nsteps, ms)
 !-----------!
 ! Iteration !
 !-----------!
-  do i = 0, nsteps
+  do i = 1, nsteps+heating
      ! Initialize flags
      flag = 0
      ! Initialize stack
      stack = 0
      top = 0
-     ! Initialize ms array
-     ms(i) = 0
      ! Pick a random site
      errcode = virnguniform(VSL_RNG_METHOD_UNIFORM_STD, stream, 2, rInt, 1, L+1)
      call vsl_test(errcode)
@@ -103,11 +128,12 @@ subroutine wolff(T, L, nsteps, ms)
      flag(rInt(1),rInt(2)) = 1
      s = map(rInt(1), rInt(2))
      ! Build a cluster
-     do while(top > 0)
+     clst: do while(top > 0)
+!        print *, T, i, top
         x = stack(top,1)
         y = stack(top,2)
         top = top-1
-        do k = 1,4
+        neighbor: do k = 1,4
            !examine the neighbors
            x2 = x
            y2 = y
@@ -120,35 +146,38 @@ subroutine wolff(T, L, nsteps, ms)
            else !k==4
               y2 = idown(y)
            endif
-           if( flag(x2,y2) == 0 .AND. map(x2,y2) == s) then
+           ifcan: if( flag(x2,y2) == 0 .AND. map(x2,y2) == s) then
               errcode = vdrngexponential(VSL_RNG_METHOD_EXPONENTIAL_ICDF, &
                    stream, 1, rExp, 0.d0, 1.d0)
               call vsl_test(errcode)
-              if(rExp(1) > 2.d0/T) then
+!              print *,T, rExp(1) , 2.d0/T
+              ifdo: if(rExp(1) < 2.d0/T) then
                  flag(x2, y2) = 1
                  top = top+1
                  stack(top,:) = (/ x2, y2 /)
-              end if
-           end if
-        end do
-     end do
+              end if ifdo
+           end if ifcan
+        end do neighbor
+     end do clst
      ! flip all spins in the cluster
      forall (x = 1:L, y = 1:L, flag(x,y) == 1) 
         map(x,y) = -map(x,y)
      end forall
      ! save current M state
-     do x=1,L
-        do y = 1,L
-           ms(i) = ms(i) + dble(map(x,y))
+     j = i-heating
+     if (j > 0) then
+        ms(j) = 0.d0
+        do x=1,L
+           do y = 1,L
+              ms(j) = ms(j) + dble(map(x,y))
+           end do
         end do
-     end do
+        if (ms(j) < 0) then
+           ms(j) = -ms(j)
+        end if
+     end if
   end do
   ms = ms/dble(N)
-!-----------------------!
-! Destroying RNG stream !
-!-----------------------!
-  errcode = vsldeletestream(stream)
-  call vsl_test(errcode)
 end subroutine wolff
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -174,10 +203,10 @@ subroutine meanAndVar(ms, n, mean, var)
   var = 0.d0
   do i=1,n
      mean = mean + ms(i)
-     var = var + ms(i) ** 2
+     var = var + ms(i) * ms(i)
   end do
   mean = mean / dble(n)
-  var = (var - mean ** 2) / dble(n-1)
+  var = (var/dble(n) - mean * mean)
 end subroutine meanAndVar
 
 !!!!!!!!!!!!!!!!!!!!!
