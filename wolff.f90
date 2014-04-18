@@ -3,11 +3,11 @@ program isingWolff
   use MKL_VSL_TYPE
   use MKL_VSL
   implicit none
-  integer, parameter :: nsteps = 10000
-  real(kind=8), dimension(nsteps) :: ms, cor
+!  integer, parameter :: nsteps = 10000
+  real(kind=8), dimension(10000) :: ms, cor
   real(kind=8) :: mean, var
   integer :: i
-  real*8 :: T
+!  real*8 :: T
   integer :: brng, seed  
   integer(kind=4) :: errcode
   type (VSL_STREAM_STATE) :: stream
@@ -19,18 +19,19 @@ program isingWolff
   errcode = vslnewstream(stream, brng, seed)
   call vsl_test(errcode)
 !$OMP DO
-  do i=1,100
-     T = 2.0d0 + i*0.01d0
-     call wolff(T,100,nsteps,ms,stream)
-     call meanAndVar(ms, nsteps, mean, var)
-     write (*,*) T, mean, var
-  end do
-!$OMP END DO
-
-!  call autocor(ms, 10000, cor)
-!  do i=1,10000
-!     print *, cor(i)
+!  do i=1,100
+!     T = 2.0d0 + i*0.01d0
+!     call wolff(T,100,nsteps,ms,stream)
+!     call meanAndVar(ms, nsteps, mean, var)
+!     write (*,*) T, mean, var
 !  end do
+!$OMP END DO
+  call wolff(2.d0/log(sqrt(2.d0)+1.d0), 100, 10000, ms, stream)
+  call autocor(ms, 10000, cor)
+
+  do i=1,10000
+     print *, cor(i)
+  end do
 
 !-----------------------!
 ! Destroying RNG stream !
@@ -67,7 +68,7 @@ subroutine wolff(T, L, nsteps, ms, stream)
 ! Total sites
   integer :: N
 ! Heating steps
-  integer, parameter :: heating = 1000
+  integer, parameter :: heating = 0
 ! Spin map
   integer(kind=4), dimension(L,L) :: map
   integer(kind=4), dimension(L,L) :: flag
