@@ -12,13 +12,13 @@ program isingWolff
   integer(kind=4) :: errcode
   type (VSL_STREAM_STATE) :: stream
 ! initialize VSL RNG stream
-!$OMP PARALLEL SHARED(brng) PRIVATE(seed, errcode, stream, mean, var, T)
+!$OMP PARALLEL DEFAULT(PRIVATE) SHARED(brng) PRIVATE(seed, errcode, stream, mean, var, T)
   brng = VSL_BRNG_MT2203
   seed = 16703
 !$seed = mod(OMP_get_thread_num()*16703, 997)
   errcode = vslnewstream(stream, brng, seed)
   call vsl_test(errcode)
-!$OMP DO
+!$OMP DO SCHEDULE(DYNAMIC)
   do i=1,100
      T = 2.0d0 + i*0.01d0
      call wolff(T,100,nsteps,ms,stream)
